@@ -29,30 +29,7 @@ theme_set(theme_minimal() + theme(legend.position = "bottom"))
 
 ### Problem 1
 
-In this problem, you will analyze data gathered to understand the effects of several variables on a child's birthweight. This dataset, available [here](data/birthweight.csv), consists of roughly 4000 children and includes the following variables:
-
-  * `babysex`: baby's sex (male = 1, female = 2)
-  * `bhead`: baby's head circumference at birth (centimeters)
-  * `blength`: baby's length at birth (centimeteres)
-  * `bwt`: baby's birth weight (grams)
-  * `delwt`: mother's weight at delivery (pounds)
-  * `fincome`: family monthly income (in hundreds, rounded)
-  * `frace`: father's race (1 = White, 2 = Black, 3 = Asian, 4 = Puerto Rican, 8 = Other, 9 = Unknown)
-  * `gaweeks`: gestational age in weeks
-  * `malform`: presence of malformations that could affect weight (0 = absent, 1 = present)
-  * `menarche`: mother's age at menarche (years)
-  * `mheigth`: mother's height (inches) 
-  * `momage`: mother's age at delivery (years)
-  * `mrace`: mother's race (1 = White, 2 = Black, 3 = Asian, 4 = Puerto Rican, 8 = Other)
-  * `parity`: number of live births prior to this pregnancy
-  * `pnumlbw`: previous number of low birth weight babies 
-  * `pnumgsa`: number of prior small for gestational age babies
-  * `ppbmi`: mother's pre-pregnancy BMI
-  * `ppwt`: mother's pre-pregnancy weight (pounds)
-  * `smoken`: average number of cigarettes smoked per day during pregnancy
-  * `wtgain`: mother's weight gain during pregnancy (pounds)
-
-Load and clean the data for regression analysis (i.e. convert numeric to factor where appropriate, check for missing data, etc.).
+We examined potential factors associated with child birth weight. The birthweight dataset consists of roughly 4000 children. Below we load and clean the data prior to performing regression analyses. Data cleaning steps included converting from numeric to factor (i.e., `babysex`, `frace`, and `mrace`) and to logical (i.e., `malform`) where appropriate. We also checked for any missing data (none was found).
 
 ```{r}
 birthwt = read_csv("./data/birthweight.csv") %>% 
@@ -81,17 +58,21 @@ birthwt = read_csv("./data/birthweight.csv") %>%
 anyNA(birthwt)
 ```
 
-Propose a regression model for birthweight. This model may be based on a hypothesized structure for the factors that underly birthweight, on a data-driven model-building process, or a combination of the two. Describe your modeling process and show a plot of model residuals against fitted values -- use `add_predictions` and `add_residuals` in making this plot. 
+Below is a linear regression of baby birthweight (in grams). A number of predictors were selected based on hypothesized influence on birthweight. These predictors included baby sex, head circumference at birth (in centimeters), length at birth (in centimeters), gestational age (in weeks), the presence of malformations that could affect weight (represented as a binary feature; 0 = absent, 1 = present), mother's age at delivery (in years), and mother's weight gain during pregnancy (in pounds). Sex-based differences are well described in the literature. Head size, body length, presence of malformations known to affect weight, and gestational age all seem like logical choices for factors that influence birthweight. Factors related to pregnant mothers such as mother's age at delivery and any weight gain during pregnancy also seem likely to impact child birth weight.
 
 ```{r}
-model0 = lm(bwt ~ babysex + bhead + blength + gaweeks + malform + momage + wtgain, data = birthwt)
+mdl_proposed = lm(bwt ~ babysex + bhead + blength + gaweeks + malform + momage + wtgain, data = birthwt)
 
-model0 %>% 
+mdl_proposed %>% 
   broom::tidy()
+```
 
+Below is a plot of model residuals against fitted values. Most observations cluster in one area, suggesting the model is a fairly good fit, though a number of predictions differ greatly from the observed values.
+
+```{r}
 birthwt %>%
-  add_residuals(model0) %>%
-  add_predictions(model0) %>%
+  add_residuals(mdl_proposed) %>%
+  add_predictions(mdl_proposed) %>%
   ggplot(aes(x = pred, y = resid)) + 
   geom_point() + 
   labs(
@@ -101,12 +82,10 @@ birthwt %>%
   )
 ```
 
-Compare your model to two others:
+Here we compare our model to two others:
 
 * One using length at birth and gestational age as predictors (main effects only)
 * One using head circumference, length, sex, and all interactions (including the three-way interaction) between these
-
-Make this comparison in terms of the cross-validated prediction error; use `crossv_mc` and functions in `purrr` as appropriate.
 
 ```{r}
 cv_df = 
@@ -117,13 +96,19 @@ cv_df =
 cv_df = 
   cv_df %>% 
   mutate(
-    model0 = map(train, ~lm(bwt ~ babysex + bhead + blength + gaweeks + malform + momage + wtgain, data = .x)),
-    model1 = map(train, ~lm(bwt ~ blength + gaweeks, data = .x)),
-    model2 = map(train, ~lm(bwt ~ bhead * blength * babysex, data = .x))) %>% 
+    proposed = 
+      map(train, ~lm(bwt ~ babysex + bhead + blength + gaweeks + malform + momage + wtgain, data = .x)),
+    simple = map(train, ~lm(bwt ~ blength + gaweeks, data = .x)),
+    complex = map(train, ~lm(bwt ~ bhead * blength * babysex, data = .x))) %>% 
   mutate(
-    rmse_model0 = map2_dbl(model0, test, ~rmse(model = .x, data = .y)),
-    rmse_model1 = map2_dbl(model1, test, ~rmse(model = .x, data = .y)),
-    rmse_model2 = map2_dbl(model2, test, ~rmse(model = .x, data = .y)))
+    rmse_model_proposed = map2_dbl(proposed, test, ~rmse(model = .x, data = .y)),
+    rmse_model_simple = map2_dbl(simple, test, ~rmse(model = .x, data = .y)),
+    rmse_model_complex = map2_dbl(complex, test, ~rmse(model = .x, data = .y)))
+```
+
+We cross-validated prediction error and present these data as a boxplot. The model we initially proposed was the best performing model based on comparison of RMSE. The worst performing model was the simplest model that incorporated only length at birth and gestational age as predictors.
+
+```{r}
 cv_df %>% 
   select(starts_with("rmse")) %>% 
   pivot_longer(
@@ -136,18 +121,9 @@ cv_df %>%
   geom_boxplot()
 ```
 
-Note that although we expect your model to be reasonable, model building itself is not a main idea of the course and we don’t necessarily expect your model to be "optimal".
-
 ### Problem 2
 
-For this problem, we'll use the 2017 Central Park weather data that we've seen elsewhere. The code chunk below (adapted from the course website) will download these data. 
-
-The boostrap is helpful when you'd like to perform inference for a parameter / value / summary that doesn't have an easy-to-write-down distribution in the usual repeated sampling framework. We'll focus on a simple linear regression with `tmax` as the response and `tmin` as the predictor, and are interested in the distribution of two quantities estimated from these data:
-
-* $\hat{r}^2$
-* $\log(\hat{\beta}_0 * \hat{\beta}_1)$
-
-Use 5000 bootstrap samples and, for each bootstrap sample, produce estimates of these two quantities. Plot the distribution of your estimates, and describe these in words. 
+We used 2017 Central Park weather data to demonstrate bootstrapping using a simple linear regression with `tmax` as the response and `tmin` as the predictor. Based on 5000 bootstrap samples, we produced estimates of $\hat{r}^2$ and $\log(\hat{\beta}_0 * \hat{\beta}_1)$.
 
 ```{r}
 set.seed(123)
@@ -173,44 +149,7 @@ bootstrap_results =
   select(results) %>% 
   unnest(results)
 
-bootstrap_results%>% 
-  ggplot(aes(x = r.squared)) + geom_density()
-
-bootstrap_results %>% 
-  summarize(
-    ci_lower = quantile(r.squared, 0.025), 
-    ci_upper = quantile(r.squared, 0.975))%>%
-  knitr::kable(digits = 3)
-
-bootstrap_results %>% 
-  ggplot(aes(x = r.squared)) + 
-  geom_density() +
-  labs(
-    x = expression(hat(r)^2),
-    y = "Density",
-    title = expression(paste('Distribution of ', hat(r)^2, ' estimates'))
-    ) +
-    theme(plot.title = element_text(hjust = 0.5))
-```
-
-Using the 5000 bootstrap estimates, identify the 2.5% and 97.5% quantiles to provide a 95% confidence interval for $\hat{r}^2$ and $\log(\hat{\beta}_0 * \hat{\beta}_1)$. Note: `broom::glance()` is helpful for extracting $\hat{r}^2$ from a fitted regression, and `broom::tidy()` (with some additional wrangling) should help in computing $\log(\hat{\beta}_0 * \hat{\beta}_1)$. 
-
-```{r}
-set.seed(123)
-
-weather_df = 
-  rnoaa::meteo_pull_monitors(
-    c("USW00094728"),
-    var = c("PRCP", "TMIN", "TMAX"), 
-    date_min = "2017-01-01",
-    date_max = "2017-12-31") %>%
-  mutate(
-    name = recode(id, USW00094728 = "CentralPark_NY"),
-    tmin = tmin / 10,
-    tmax = tmax / 10) %>%
-  select(name, id, everything())
-
-bootstrap_results = 
+bootstrap_results_logb = 
   weather_df %>% 
   modelr::bootstrap(n = 5000) %>% 
   mutate(
@@ -224,8 +163,46 @@ bootstrap_results =
     values_from = "estimate") %>%
   rename(b0 = `(Intercept)`, b1 = tmin) %>% 
   mutate(log_b0b1 = log(b0 * b1)) 
+```
 
-bootstrap_results%>% 
+Using the 5000 bootstrap estimates, we identified the 2.5% and 97.5% quantiles to provide a 95% confidence interval for $\hat{r}^2$.
+
+```{r}
+bootstrap_results %>% 
+  summarize(
+    ci_lower = quantile(r.squared, 0.025), 
+    ci_upper = quantile(r.squared, 0.975))%>%
+  knitr::kable(digits = 3)
+```
+
+Here is a plot of the distribution of $\hat{r}^2$, which generally appears quite high. The shape of the distribution is roughly normal but not entirely symmetric.
+
+```{r}
+bootstrap_results %>% 
+  ggplot(aes(x = r.squared)) + 
+  geom_density() +
+  labs(
+    x = expression(hat(r)^2),
+    y = "Density",
+    title = expression(paste('Distribution of ', hat(r)^2, ' estimates'))
+    ) +
+    theme(plot.title = element_text(hjust = 0.5))
+```
+
+Using the 5000 bootstrap estimates, we also identified the 2.5% and 97.5% quantiles to provide a 95% confidence interval for $\log(\hat{\beta}_0 * \hat{\beta}_1)$.
+
+```{r}
+bootstrap_results_logb %>% 
+  summarize(
+    ci_lower = quantile(log_b0b1, 0.025), 
+    ci_upper = quantile(log_b0b1, 0.975))%>%
+  knitr::kable(digits = 3)
+```
+
+Here is a plot of the distribution of $\log(\hat{\beta}_0 * \hat{\beta}_1)$. As with the distribution of $\hat{r}^2$ seen above, the shape of the distribution of $\log(\hat{\beta}_0 * \hat{\beta}_1)$ is roughly normal but not entirely symmetric.
+
+```{r}
+bootstrap_results_logb%>% 
   ggplot(aes(x = log_b0b1)) + 
   geom_density() +
   labs(
@@ -234,10 +211,4 @@ bootstrap_results%>%
     title = expression(paste('Distribution of ', log(hat(beta)[0] %*% hat(beta)[1]), ' estimates'))
     ) +
     theme(plot.title = element_text(hjust = 0.5))
-
-bootstrap_results %>% 
-  summarize(
-    ci_lower = quantile(log_b0b1, 0.025), 
-    ci_upper = quantile(log_b0b1, 0.975))%>%
-  knitr::kable(digits = 3)
 ```

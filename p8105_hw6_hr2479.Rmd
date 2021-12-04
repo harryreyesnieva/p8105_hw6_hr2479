@@ -7,6 +7,9 @@ output: github_document
 
 ```{r setup, include=FALSE}
 library(tidyverse)
+library(p8105.datasets)
+library(modelr)
+library(purrr)
 library(viridis)
 knitr::opts_chunk$set(
   echo = TRUE,
@@ -51,7 +54,52 @@ In this problem, you will analyze data gathered to understand the effects of sev
 
 Load and clean the data for regression analysis (i.e. convert numeric to factor where appropriate, check for missing data, etc.).
 
+```{r}
+birthwt = read_csv("./data/birthweight.csv") %>% 
+  janitor::clean_names() %>%
+  mutate(
+    babysex = as.factor(babysex),
+    babysex = fct_recode(babysex, 
+                         "male" = "1", 
+                         "female" = "2"),
+    frace = as.factor(frace),
+    frace = fct_recode(frace, 
+                       "white" = "1", 
+                       "black" = "2", 
+                       "asian" = "3", 
+                       "puerto rican" = "4", 
+                       "other" = "8"),
+    mrace = as.factor(mrace),
+    mrace = fct_recode(mrace, 
+                       "white" = "1", 
+                       "black" = "2", 
+                       "asian" = "3", 
+                       "puerto rican" = "4"),
+    malform = as.logical(malform)
+    )
+
+anyNA(birthwt)
+```
+
 Propose a regression model for birthweight. This model may be based on a hypothesized structure for the factors that underly birthweight, on a data-driven model-building process, or a combination of the two. Describe your modeling process and show a plot of model residuals against fitted values -- use `add_predictions` and `add_residuals` in making this plot. 
+
+```{r}
+model0 = lm(bwt ~ babysex + bhead + blength + gaweeks + malform + momage + wtgain, data = birthwt)
+
+model0 %>% 
+  broom::tidy()
+
+birthwt %>%
+  add_residuals(model0) %>%
+  add_predictions(model0) %>%
+  ggplot(aes(x = pred, y = resid)) + 
+  geom_point() + 
+  labs(
+    title = "Plot of residuals against fitted values",
+    x = "Fitted values",
+    y = "Residuals"
+  )
+```
 
 Compare your model to two others:
 
@@ -60,14 +108,50 @@ Compare your model to two others:
 
 Make this comparison in terms of the cross-validated prediction error; use `crossv_mc` and functions in `purrr` as appropriate.
 
-Note that although we expect your model to be reasonable, model building itself is not a main idea of the course and we don’t necessarily expect your model to be "optimal".
+```{r}
+cv_df = 
+  crossv_mc(birthwt, 100) %>% 
+  mutate(
+    train = map(train, as_tibble),
+    test = map(test, as_tibble))
+cv_df = 
+  cv_df %>% 
+  mutate(
+    model0 = map(train, ~lm(bwt ~ babysex + bhead + blength + gaweeks + malform + momage + wtgain, data = .x)),
+    model1 = map(train, ~lm(bwt ~ blength + gaweeks, data = .x)),
+    model2 = map(train, ~lm(bwt ~ bhead * blength * babysex, data = .x))) %>% 
+  mutate(
+    rmse_model0 = map2_dbl(model0, test, ~rmse(model = .x, data = .y)),
+    rmse_model1 = map2_dbl(model1, test, ~rmse(model = .x, data = .y)),
+    rmse_model2 = map2_dbl(model2, test, ~rmse(model = .x, data = .y)))
+cv_df %>% 
+  select(starts_with("rmse")) %>% 
+  pivot_longer(
+    everything(),
+    names_to = "model",
+    values_to = "rmse",
+    names_prefix = "rmse_"
+  ) %>% 
+  ggplot(aes(x = model, y = rmse)) + 
+  geom_boxplot()
+```
 
+Note that although we expect your model to be reasonable, model building itself is not a main idea of the course and we don’t necessarily expect your model to be "optimal".
 
 ### Problem 2
 
 For this problem, we'll use the 2017 Central Park weather data that we've seen elsewhere. The code chunk below (adapted from the course website) will download these data. 
 
-```{r eval = FALSE}
+The boostrap is helpful when you'd like to perform inference for a parameter / value / summary that doesn't have an easy-to-write-down distribution in the usual repeated sampling framework. We'll focus on a simple linear regression with `tmax` as the response and `tmin` as the predictor, and are interested in the distribution of two quantities estimated from these data:
+
+* $\hat{r}^2$
+* $\log(\hat{\beta}_0 * \hat{\beta}_1)$
+
+Use 5000 bootstrap samples and, for each bootstrap sample, produce estimates of these two quantities. Plot the distribution of your estimates, and describe these in words. 
+
+```{r}
+set.seed(123)
+
 weather_df = 
   rnoaa::meteo_pull_monitors(
     c("USW00094728"),
@@ -79,13 +163,81 @@ weather_df =
     tmin = tmin / 10,
     tmax = tmax / 10) %>%
   select(name, id, everything())
+
+bootstrap_results = 
+  weather_df %>% 
+  modelr::bootstrap(n = 5000) %>% 
+  mutate(
+    models = map(strap, ~lm(tmax ~ tmin, data = .x)),
+    results = map(models, broom::glance)) %>% 
+  select(results) %>% 
+  unnest(results)
+
+bootstrap_results%>% 
+  ggplot(aes(x = r.squared)) + geom_density()
+
+bootstrap_results %>% 
+  summarize(
+    ci_lower = quantile(r.squared, 0.025), 
+    ci_upper = quantile(r.squared, 0.975))%>%
+  knitr::kable(digits = 3)
+
+bootstrap_results %>% 
+  ggplot(aes(x = r.squared)) + 
+  geom_density() +
+  labs(
+    x = expression(hat(r)^2),
+    y = "Density",
+    title = expression(paste('Distribution of ', hat(r)^2, ' estimates'))
+    ) +
+    theme(plot.title = element_text(hjust = 0.5))
 ```
 
-The boostrap is helpful when you'd like to perform inference for a parameter / value / summary that doesn't have an easy-to-write-down distribution in the usual repeated sampling framework. We'll focus on a simple linear regression with `tmax` as the response and `tmin` as the predictor, and are interested in the distribution of two quantities estimated from these data:
+Using the 5000 bootstrap estimates, identify the 2.5% and 97.5% quantiles to provide a 95% confidence interval for $\hat{r}^2$ and $\log(\hat{\beta}_0 * \hat{\beta}_1)$. Note: `broom::glance()` is helpful for extracting $\hat{r}^2$ from a fitted regression, and `broom::tidy()` (with some additional wrangling) should help in computing $\log(\hat{\beta}_0 * \hat{\beta}_1)$. 
 
-* $\hat{r}^2$
-* $\log(\hat{\beta}_0 * \hat{\beta}_1)$
+```{r}
+set.seed(123)
 
-Use 5000 bootstrap samples and, for each bootstrap sample, produce estimates of these two quantities. Plot the distribution of your estimates, and describe these in words. Using the 5000 bootstrap estimates, identify the 2.5% and 97.5% quantiles to provide a 95% confidence interval for $\hat{r}^2$ and $\log(\hat{\beta}_0 * \hat{\beta}_1)$. Note: `broom::glance()` is helpful for extracting $\hat{r}^2$ from a fitted regression, and `broom::tidy()` (with some additional wrangling) should help in computing $\log(\hat{\beta}_0 * \hat{\beta}_1)$. 
+weather_df = 
+  rnoaa::meteo_pull_monitors(
+    c("USW00094728"),
+    var = c("PRCP", "TMIN", "TMAX"), 
+    date_min = "2017-01-01",
+    date_max = "2017-12-31") %>%
+  mutate(
+    name = recode(id, USW00094728 = "CentralPark_NY"),
+    tmin = tmin / 10,
+    tmax = tmax / 10) %>%
+  select(name, id, everything())
 
+bootstrap_results = 
+  weather_df %>% 
+  modelr::bootstrap(n = 5000) %>% 
+  mutate(
+    models = map(strap, ~lm(tmax ~ tmin, data = .x)),
+    results = map(models, broom::tidy)) %>% 
+  select(-strap, -models)%>%
+  unnest(results)%>%
+  select(`.id`, term, estimate) %>% 
+  pivot_wider(
+    names_from = "term", 
+    values_from = "estimate") %>%
+  rename(b0 = `(Intercept)`, b1 = tmin) %>% 
+  mutate(log_b0b1 = log(b0 * b1)) 
 
+bootstrap_results%>% 
+  ggplot(aes(x = log_b0b1)) + 
+  geom_density() +
+  labs(
+    x = expression(log(hat(beta)[0] %*% hat(beta)[1])),
+    y = "Density",
+    title = expression(paste('Distribution of ', log(hat(beta)[0] %*% hat(beta)[1]), ' estimates'))
+    ) +
+    theme(plot.title = element_text(hjust = 0.5))
+
+bootstrap_results %>% 
+  summarize(
+    ci_lower = quantile(log_b0b1, 0.025), 
+    ci_upper = quantile(log_b0b1, 0.975))%>%
+  knitr::kable(digits = 3)
+```

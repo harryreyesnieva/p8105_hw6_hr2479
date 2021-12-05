@@ -29,7 +29,7 @@ theme_set(theme_minimal() + theme(legend.position = "bottom"))
 
 ### Problem 1
 
-We examined potential factors associated with child birth weight. The birthweight dataset consists of roughly 4000 children. Below we load and clean the data prior to performing regression analyses. Data cleaning steps included converting from numeric to factor (i.e., `babysex`, `frace`, and `mrace`) and to logical (i.e., `malform`) where appropriate. We also checked for any missing data (none was found).
+In this example, we examined potential factors associated with child birth weight. The birthweight dataset consists of roughly 4000 children. Below we load and clean the dataset prior to performing regression analyses. Data cleaning steps included converting from numeric to factor (i.e., `babysex`, `frace`, and `mrace`) and to logical (i.e., `malform`) where appropriate. We also checked for any missing data (none was found).
 
 ```{r}
 birthwt = read_csv("./data/birthweight.csv") %>% 
@@ -61,9 +61,9 @@ anyNA(birthwt)
 Below is a linear regression of baby birthweight (in grams). A number of predictors were selected based on hypothesized influence on birthweight. These predictors included baby sex, head circumference at birth (in centimeters), length at birth (in centimeters), gestational age (in weeks), the presence of malformations that could affect weight (represented as a binary feature; 0 = absent, 1 = present), mother's age at delivery (in years), and mother's weight gain during pregnancy (in pounds). Sex-based differences are well described in the literature. Head size, body length, presence of malformations known to affect weight, and gestational age all seem like logical choices for factors that influence birthweight. Factors related to pregnant mothers such as mother's age at delivery and any weight gain during pregnancy also seem likely to impact child birth weight.
 
 ```{r}
-mdl_proposed = lm(bwt ~ babysex + bhead + blength + gaweeks + malform + momage + wtgain, data = birthwt)
+proposed = lm(bwt ~ babysex + bhead + blength + gaweeks + malform + momage + wtgain, data = birthwt)
 
-mdl_proposed %>% 
+proposed %>% 
   broom::tidy()
 ```
 
@@ -71,8 +71,8 @@ Below is a plot of model residuals against fitted values. Most observations clus
 
 ```{r}
 birthwt %>%
-  add_residuals(mdl_proposed) %>%
-  add_predictions(mdl_proposed) %>%
+  add_residuals(proposed) %>%
+  add_predictions(proposed) %>%
   ggplot(aes(x = pred, y = resid)) + 
   geom_point() + 
   labs(
